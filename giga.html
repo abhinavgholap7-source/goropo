@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Automatic Wallpaper Generator (2D)</title>
+  <style>
+    :root{--bg:#111;--panel:#f7f7f7}
+    body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial;background:var(--bg);color:#111;display:flex;min-height:100vh;gap:18px;align-items:flex-start;padding:20px}
+    .panel{background:var(--panel);border-radius:12px;padding:14px;box-shadow:0 6px 20px rgba(0,0,0,.25);width:360px}
+    h1{font-size:18px;margin:0 0 8px}
+    label{display:block;margin:8px 0 4px;font-size:13px}
+    select,input[type=range],input[type=color]{width:100%}
+    .row{display:flex;gap:8px}
+    .row > *{flex:1}
+    button{width:100%;padding:10px;border-radius:8px;border:0;background:#0b79f7;color:white;font-weight:600;cursor:pointer}
+    canvas{border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);display:block}
+    .small{font-size:12px;color:#333;margin-top:6px}
+    footer{margin-top:8px;font-size:12px;color:#444}
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h1>Automatic Wallpaper Generator — 2D (not 3D)</h1>
+    <label>Resolution</label>
+    <select id="res">
+      <option value="1920x1080">1920 × 1080</option>
+      <option value="1080x1920">1080 × 1920 (phone)</option>
+      <option value="2560x1440">2560 × 1440</option>
+      <option value="3840x2160">3840 × 2160 (4K)</option>
+      <option value="1280x720">1280 × 720</option>
+    </select>
+
+    <label>Style</label>
+    <select id="style">
+      <option value="gradient">Smooth Gradient</option>
+      <option value="stripes">Stripes</option>
+      <option value="dots">Polka Dots</option>
+      <option value="shapes">Geometric Shapes</option>
+      <option value="noise">Subtle Noise</option>
+    </select>
+
+    <label>Primary color</label>
+    <input id="c1" type="color" value="#ff7a18" />
+    <label>Secondary color</label>
+    <input id="c2" type="color" value="#2b32b2" />
+
+    <label>Complexity (affects number of shapes / stripes / dots)</label>
+    <input id="complex" type="range" min="1" max="10" value="5" />
+
+    <label>Seed (type a number for reproducible wallpapers)</label>
+    <input id="seed" type="number" placeholder="random if empty" />
+
+    <div style="margin-top:10px" class="row">
+      <button id="gen">Generate</button>
+      <button id="rand">Randomize</button>
+    </div>
+
+    <div style="margin-top:8px" class="row">
+      <button id="download">Download PNG</button>
+      <button id="preview">Open in New Tab</button>
+    </div>
+
+    <p class="small">This generator creates flat 2D wallpapers: gradients, stripes, dots, and simple geometric patterns. Not 3D, no lighting or perspective — perfect for desktop or phone backgrounds.</p>
+    <footer>Tip: try different seeds to get the same wallpaper again.</footer>
+  </div>
+
+  <div style="flex:1;min-width:300px;display:flex;flex-direction:column;gap:12px;align-items:center">
+    <canvas id="cv" width="1920" height="1080"></canvas>
+    <div style="width:100%;max-width:1000px;text-align:center;color:#ddd;font-size:13px">Canvas preview (changes after you click Generate)</div>
+  </div>
+
+<script>
+(function(){
+  // simple seeded random
+  function RNG(seed){
+    if(seed==null) seed = Math.floor(Math.random()*1e9);
+    let s = seed >>> 0;
+    return function(){
+      s = Math.imul(1664525, s) + 1013904223 | 0;
+      return ((s >>> 0) / 4294967296);
+    }
+  }
+
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const resEl = document.getElementById('res');
+  const styleEl = document.getElementById('style');
+  const c1 = document.getElementById('c1');
+  const c2 = document.getElementById('c2');
+  const complex = document.getElementById('complex');
+  const seedEl = document.getElementById('seed');
+  const genBtn = document.getElementById('gen');
+  const randBtn = document.getElementById('rand');
+  const downloadBtn = document.getElementById('download');
+  const previewBtn = document.getElementById('preview');
+
+  function parseRes(v){const [w,h]=v.split('x').map(Number);return {w,h};}
+  function hexToRgb(hex){hex=hex.replace('#','');return {r:parseInt(hex.substring(0,2),16),g:parseInt(hex.substring(2,4),16),b:parseInt(hex.substring(4,6),16)} }
+  function lerp(a,b,t){return a + (b-a)*t}
+  function draw(){
+    const seedValue = seedEl.value ? Number(seedEl.value) : Math.floor(Math.random()*1e9);
+    const rand = RNG(seedValue);
+    const r = parseRes(resEl.value);
+    cv.width = r.w; cv.height = r.h;
+    // background
+    ctx.clearRect(0,0,cv.width,cv.height);
+    const colorA = c1.value; const colorB = c2.value;
+    const complexity = Number(complex.value);
+    const style = styleEl.value;
+
+    if(style === 'gradient'){
+      const g = ctx.createLinearGradient(0,0,cv.width*rand(),cv.height*rand());
+      g.addColorStop(0, colorA);
+      g.addColorStop(1, colorB);
+      ctx.fillStyle = g; ctx.fillRect(0,0,cv.width,cv.height);
+      // subtle overlays
+      for(let i=0;i<Math.max(1,complexity-4);i++){
+        ctx.globalAlpha = 0.06*rand();
+        ctx.fillStyle = i%2?colorB:colorA;
+        const x = rand()*cv.width; const y = rand()*cv.height; const size = Math.max(cv.width,cv.height)*rand()*0.8;
+        ctx.beginPath(); ctx.ellipse(x,y,size, size*0.6, rand()*Math.PI,0,Math.PI*2); ctx.fill();
+      }
+      ctx.globalAlpha=1;
+    }
+
+    else if(style === 'stripes'){
+      // create wide stripes
+      const count = 4 + complexity;
+      for(let i=0;i<count;i++){
+        const t = i/(count-1);
+        ctx.fillStyle = `rgba(${lerp(hexToRgb(colorA).r,hexToRgb(colorB).r,t)|0},${lerp(hexToRgb(colorA).g,hexToRgb(colorB).g,t)|0},${lerp(hexToRgb(colorA).b,hexToRgb(colorB).b,t)|0},1)`;
+        const x = Math.floor(i * cv.width / count + (rand()-0.5)*50);
+        const w = Math.ceil(cv.width / count * (0.8 + rand()*0.6));
+        ctx.fillRect(x,0,w,cv.height);
+      }
+      // add noise overlay
+      ctx.globalAlpha = 0.06; noisy(ctx, cv.width, cv.height, rand);
+      ctx.globalAlpha = 1;
+    }
+
+    else if(style === 'dots'){
+      // base gradient
+      const g = ctx.createLinearGradient(0,0,cv.width,cv.height);
+      g.addColorStop(0,colorA); g.addColorStop(1,colorB); ctx.fillStyle = g; ctx.fillRect(0,0,cv.width,cv.height);
+      const dots = 50 + complexity*40;
+      for(let i=0;i<dots;i++){
+        const x = rand()*cv.width; const y = rand()*cv.height;
+        const rsize = (Math.min(cv.width,cv.height)/30) * (0.3 + rand()*1.2);
+        ctx.beginPath(); ctx.arc(x,y,rsize,0,Math.PI*2);
+        ctx.fillStyle = `rgba(255,255,255,${0.06 + rand()*0.18})`;
+        ctx.fill();
+      }
+    }
+
+    else if(style === 'shapes'){
+      // background
+      ctx.fillStyle = colorA; ctx.fillRect(0,0,cv.width,cv.height);
+      const n = 6 + complexity*6;
+      for(let i=0;i<n;i++){
+        const t = rand();
+        ctx.save();
+        const w = cv.width; const h = cv.height;
+        const x = rand()*w; const y = rand()*h;
+        const size = (Math.min(w,h)/6) * (0.5 + rand()*2.5);
+        ctx.translate(x,y);
+        ctx.rotate(rand()*Math.PI*2);
+        const fill = rand()>0.5 ? colorB : colorA;
+        ctx.globalAlpha = 0.6 - rand()*0.4;
+        if(rand()>0.5){
+          ctx.fillStyle = fill; ctx.beginPath(); ctx.rect(-size/2,-size/2,size,size); ctx.fill();
+        } else {
+          ctx.fillStyle = fill; ctx.beginPath(); ctx.moveTo(0,-size/2); ctx.lineTo(size/2,size/2); ctx.lineTo(-size/2,size/2); ctx.closePath(); ctx.fill();
+        }
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    else if(style === 'noise'){
+      // soft color
+      const g = ctx.createLinearGradient(0,0,cv.width,cv.height);
+      g.addColorStop(0,colorA); g.addColorStop(1,colorB); ctx.fillStyle = g; ctx.fillRect(0,0,cv.width,cv.height);
+      // heavy subtle noise
+      ctx.globalAlpha = 0.08; noisy(ctx, cv.width, cv.height, rand);
+      ctx.globalAlpha = 1;
+    }
+
+    // small vignette to make icons readable
+    const grd = ctx.createRadialGradient(cv.width/2,cv.height/2,Math.min(cv.width,cv.height)*0.1, cv.width/2,cv.height/2, Math.max(cv.width,cv.height));
+    grd.addColorStop(0,'rgba(0,0,0,0)'); grd.addColorStop(1,'rgba(0,0,0,0.15)');
+    ctx.fillStyle = grd; ctx.fillRect(0,0,cv.width,cv.height);
+
+  }
+
+  function noisy(ctx,w,h,rand){
+    // draw random tiny rectangles for noise
+    const count = Math.floor(w*h*0.00012);
+    for(let i=0;i<count;i++){
+      const x = Math.floor(rand()*w);
+      const y = Math.floor(rand()*h);
+      const a = rand()*0.12;
+      ctx.fillStyle = `rgba(0,0,0,${a})`;
+      ctx.fillRect(x,y,1,1);
+    }
+  }
+
+  genBtn.addEventListener('click', ()=>{ draw(); });
+  randBtn.addEventListener('click', ()=>{
+    // randomize controls
+    const seedv = Math.floor(Math.random()*1e9);
+    seedEl.value = seedv;
+    c1.value = '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6,'0');
+    c2.value = '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6,'0');
+    complex.value = (2 + Math.floor(Math.random()*8)).toString();
+    styleEl.value = ['gradient','stripes','dots','shapes','noise'][Math.floor(Math.random()*5)];
+    draw();
+  });
+
+  downloadBtn.addEventListener('click', ()=>{
+    const link = document.createElement('a');
+    link.href = cv.toDataURL('image/png');
+    link.download = `wallpaper-${Date.now()}.png`;
+    link.click();
+  });
+  previewBtn.addEventListener('click', ()=>{
+    const data = cv.toDataURL('image/png');
+    window.open(data, '_blank');
+  });
+
+  // initial draw
+  (function init(){
+    // set canvas style size for preview scaling
+    const r = parseRes(resEl.value);
+    cv.style.maxWidth = '100%';
+    draw();
+  })();
+
+})();
+</script>
+</body>
+</html>
